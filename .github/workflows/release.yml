@@ -1,0 +1,134 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .app bundle
+        run: |
+          pyinstaller \
+            --windowed \
+            --name "Clip Concatenator" \
+            --add-data "assets/logo_b64.txt:assets" \
+            concat_clips.py
+
+      - name: Zip .app for distribution
+        run: |
+          cd dist
+          zip -r "../Clip-Concatenator-${{ github.ref_name }}-macOS.zip" "Clip Concatenator.app"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: "Clip-Concatenator-${{ github.ref_name }}-macOS.zip"
+
+  build-windows:
+    name: Build Windows Exe
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .exe
+        run: |
+          pyinstaller `
+            --windowed `
+            --onefile `
+            --name "Clip Concatenator" `
+            --add-data "assets/logo_b64.txt;assets" `
+            concat_clips.py
+
+      - name: Zip .exe for distribution
+        run: |
+          Compress-Archive -Path "dist\Clip Concatenator.exe" `
+            -DestinationPath "Clip-Concatenator-${{ github.ref_name }}-Windows.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: "Clip-Concatenator-${{ github.ref_name }}-Windows.zip"
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-macos, build-windows]
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          name: Clip Concatenator ${{ github.ref_name }}
+          body: |
+            ## Clip Concatenator ${{ github.ref_name }}
+
+            Standalone desktop app — no Python installation required.
+
+            | Platform | Download |
+            |----------|----------|
+            | macOS | `Clip-Concatenator-${{ github.ref_name }}-macOS.zip` |
+            | Windows | `Clip-Concatenator-${{ github.ref_name }}-Windows.zip` |
+
+            ### macOS
+            1. Unzip and move `Clip Concatenator.app` to your Applications folder
+            2. Right-click → Open on first launch (Gatekeeper bypass for unsigned apps)
+            3. If macOS still blocks it, run this in Terminal:
+               `xattr -cr "/Applications/Clip Concatenator.app"`
+
+            ### Windows
+            1. Unzip and run `Clip Concatenator.exe`
+            2. If SmartScreen appears, click **More info → Run anyway**
+
+            ### Requirements
+            - ffmpeg on your PATH for video processing
+              - macOS: `brew install ffmpeg`
+              - Windows: [ffmpeg.org/download](https://ffmpeg.org/download.html)
+          artifacts: |
+            Clip-Concatenator-${{ github.ref_name }}-macOS.zip
+            Clip-Concatenator-${{ github.ref_name }}-Windows.zip
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          allowUpdates: true
